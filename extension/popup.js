@@ -4,15 +4,30 @@ import { inspectPage } from "./diag.js";
 
 const $ = (id) => document.getElementById(id);
 const NONE = "";
-let model = null, current = null, timer = null;
+const FOOTNOTE = "Fills in the form for you. You still save it yourself.";
+let model = null, current = null, timer = null, hasUrl = false;
 
 const FIELD_TITLES = { priority: "Priority", category: "Category", record_source: "Record source" };
+
+function el(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function updateFill() { $("fill").disabled = !hasUrl || !current; }
+
+function showSettings(on) {
+  $("view-settings").hidden = !on;
+  for (const id of ["main-header", "view-main", "main-footer"]) $(id).hidden = on;
+}
 
 async function init() {
   try {
     const blob = await (await fetch(chrome.runtime.getURL("model/model.json"))).json();
     model = prepare(blob);
-    $("status").textContent = `${blob.tickets.ids.length} past tickets loaded.`;
+    $("status").textContent = `${blob.tickets.ids.length.toLocaleString()} past tickets loaded. ${FOOTNOTE}`;
   } catch (e) {
     $("status").textContent = "Model not found: run python src/export.py and copy extension/model/model.json here.";
   }
@@ -23,8 +38,9 @@ async function init() {
   $("location").value = location || "";
   $("group").value = group || "";
   $("assignee").value = assignee || "";
-  $("settings").open = !contactUrl;
-  $("fill").disabled = !contactUrl;
+  hasUrl = !!contactUrl;
+  showSettings(!contactUrl);
+  updateFill();
 }
 
 // Mask EID, email and phone patterns so they never reach the model.
@@ -33,32 +49,68 @@ function scrub(text) {
   return ["EID_PATTERN", "EMAIL_PATTERN", "PHONE_PATTERN"].reduce((t, k) => t.replace(new RegExp(c[k], "g"), " "), text);
 }
 
-function render(r) {
+function renderVerdict(r) {
   const c = model.cfg, t = r.time;
-  $("result").hidden = false;
-  $("verdict").textContent = r.inquiry ? `${c.AT_THE_WINDOW_LABEL}` : `~${hoursText(t.median)}`;
-  const range = `typically ${hoursText(t.low)} to ${hoursText(t.high)}, best case ${hoursText(t.best)}`;
-  const rough = t.rough ? " (rough: few close matches)" : ` (${t.matches} similar incidents)`;
-  $("time").textContent = r.inquiry
-    ? `Looks like a general inquiry. If it is an incident: ~${hoursText(t.median)}, ${range}${rough}`
-    : `Usually ${bucketText(t.median, c.BUCKET_EDGES)}; ${range}${rough}`;
+  const conf = Math.round((r.inquiry ? r.p_inquiry : 1 - r.p_inquiry) * 100);
+  $("verdict-pill").textContent = r.inquiry ? "General inquiry" : "Incident";
+  $("confidence").textContent = `${conf}% confident`;
 
-  // Ticket Type comes from the inquiry/incident guess
+  const v = $("verdict");
+  v.classList.toggle("small", r.inquiry);
+  v.textContent = r.inquiry ? c.AT_THE_WINDOW_LABEL.toLowerCase().replace(/^./, (s) => s.toUpperCase()) : `~${hoursText(t.median)}`;
+  $("verdict-sub").textContent = r.inquiry ? `if it's an incident, ~${hoursText(t.median)}` : `usually ${bucketText(t.median, c.BUCKET_EDGES)}`;
+
+  // Range bar: typical range (low to high) with the median as a dot
+  const max = Math.max(t.high, t.median, 0.01) * 1.25;
+  const pct = (h) => `${Math.min(100, (h / max) * 100)}%`;
+  $("range-fill").style.left = pct(t.low);
+  $("range-fill").style.width = `${Math.max(1, ((t.high - t.low) / max) * 100)}%`;
+  $("range-dot").style.left = pct(t.median);
+
+  $("range-best").textContent = `Best ${hoursText(t.best)}`;
+  $("range-typical").textContent = `Usually ${hoursText(t.low)} to ${hoursText(t.high)}`;
+  $("range-count").textContent = t.rough ? "few matches" : `${t.matches} similar`;
+  $("time").textContent = t.rough ? "Rough estimate: only a few close matches." : "";
+}
+
+function renderTicketType(r) {
   const pre = r.inquiry ? TICKET_TYPES[0] : TICKET_TYPES[1];
   const sel = $("ticket-type");
   sel.replaceChildren(...TICKET_TYPES.map((t) => new Option(t, t, t === pre, t === pre)), new Option("(don't fill)", NONE));
-  $("type-hint").textContent = `Chance it is a general inquiry: ${Math.round(r.p_inquiry * 100)}%`;
+  const seg = $("type-seg");
+  seg.replaceChildren(...[...sel.options].map((o) => {
+    const b = el("button", "", o.value === NONE ? "Don't fill" : o.text);
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.addEventListener("click", () => { sel.value = o.value; syncTicketType(); });
+    b.dataset.value = o.value;
+    return b;
+  }));
+  syncTicketType();
+}
+
+function syncTicketType() {
+  const value = $("ticket-type").value;
+  for (const b of $("type-seg").children) b.setAttribute("aria-checked", String(b.dataset.value === value));
+  const hint = $("type-hint");
+  hint.textContent = value === NONE ? "Won't be filled" : "Will be filled";
+  hint.className = value === NONE ? "faint" : "ok";
+}
+
+function render(r) {
+  $("result").hidden = false;
+  $("empty").hidden = true;
+  renderVerdict(r);
+  renderTicketType(r);
 
   const info = $("info");
   info.replaceChildren();
   for (const [name, guesses] of Object.entries(r.fields)) {
-    const row = document.createElement("div");
-    row.className = "row";
-    const lab = document.createElement("span");
-    lab.textContent = FIELD_TITLES[name] || name;
-    const val = document.createElement("span");
-    val.textContent = guesses.length > 1 ? guesses.map(([v, p]) => `${v} (${Math.round(p * 100)}%)`).join(", ") : `${guesses[0][0]} (default)`;
-    row.append(lab, val);
+    const row = el("div", "row");
+    const [value, p] = guesses[0];
+    row.append(el("span", "k", FIELD_TITLES[name] || name), el("span", "v", value),
+      el("span", "p", guesses.length > 1 ? `${Math.round(p * 100)}%` : "default"));
+    if (guesses.length > 1) row.title = guesses.map(([v, q]) => `${v} (${Math.round(q * 100)}%)`).join(", ");
     info.append(row);
   }
 
@@ -70,19 +122,25 @@ function render(r) {
   const list = $("similar");
   list.replaceChildren();
   for (const s of r.similar) {
-    const li = document.createElement("li");
-    const id = document.createElement("b");
-    id.textContent = s.id;
-    li.append(id, ` (${Math.round(s.sim * 100)}%) ${s.text.slice(0, 120)}`);
+    const li = el("li");
+    const head = el("div", "sim-head");
+    head.append(el("b", "sim-id", s.id), el("span", "pill pill-soft", `${Math.round(s.sim * 100)}% match`));
+    li.append(head, el("p", "sim-text", s.text.slice(0, 120)));
     list.append(li);
   }
 }
 
 function analyze() {
   const text = $("desc").value.trim();
-  if (!model || text.length < 3) { $("result").hidden = true; current = null; return; }
-  current = predict(model, scrub(text));
-  render(current);
+  if (!model || text.length < 3) {
+    $("result").hidden = true;
+    $("empty").hidden = false;
+    current = null;
+  } else {
+    current = predict(model, scrub(text));
+    render(current);
+  }
+  updateFill();
 }
 
 $("desc").addEventListener("input", () => {
@@ -97,6 +155,9 @@ $("clear").addEventListener("click", () => {
   chrome.storage.session.remove("draft");
   analyze();
 });
+
+$("open-settings").addEventListener("click", () => showSettings(true));
+$("close-settings").addEventListener("click", () => showSettings(false));
 
 $("fill").addEventListener("click", () => {
   if (!current) return;
@@ -119,7 +180,8 @@ $("save-settings").addEventListener("click", async () => {
       throw new Error("Permission to fill that site was not granted.");
     }
     await chrome.storage.local.set({ contactUrl: u.href, location: $("location").value.trim(), group: $("group").value.trim(), assignee: $("assignee").value.trim() });
-    $("fill").disabled = false;
+    hasUrl = true;
+    updateFill();
     msg.textContent = "Saved.";
   } catch (e) {
     msg.textContent = e.message || "Not a valid URL.";

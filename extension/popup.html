@@ -6,59 +6,126 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h1>Service Me</h1>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="logo" viewBox="0 0 40 40">
+      <clipPath id="logo-right"><rect x="20" y="0" width="20" height="40"/></clipPath>
+      <rect width="40" height="40" fill="var(--charcoal)"/>
+      <rect x="20" width="20" height="40" fill="var(--orange)"/>
+      <text x="20" y="31" text-anchor="middle" class="logo-s" fill="var(--orange)">S</text>
+      <text x="20" y="31" text-anchor="middle" class="logo-s" fill="var(--charcoal)" clip-path="url(#logo-right)">S</text>
+    </symbol>
+  </svg>
 
-  <label for="desc">Short description</label>
-  <textarea id="desc" rows="3" placeholder="What is the issue?" spellcheck="false"></textarea>
-  <button id="clear" type="button" class="link">Clear and start a new ticket</button>
+  <!-- Main view -->
+  <header class="topbar" id="main-header">
+    <svg class="logo" aria-hidden="true"><use href="#logo"/></svg>
+    <div class="brand">
+      <h1>Service Me</h1>
+      <p>LAITS ticket assistant</p>
+    </div>
+    <button id="open-settings" type="button" class="chip">Settings</button>
+  </header>
 
-  <label for="eid">Requester EID <span class="hint">(only used to fill the form, never stored)</span></label>
-  <input id="eid" type="text" autocomplete="off" spellcheck="false" maxlength="12">
-
-  <p id="status" class="hint"></p>
-
-  <section id="result" hidden>
-    <div id="verdict" class="verdict"></div>
-    <div id="time" class="small"></div>
-
-    <h2>Ticket type (filled in)</h2>
-    <select id="ticket-type"></select>
-    <div id="type-hint" class="hint"></div>
-
-    <h2>Shown for reference (not filled in)</h2>
-    <div id="info"></div>
-
-    <p id="no-suggest" class="hint" hidden>No suggested wording: too few close past tickets, or no phrasing common enough across them.</p>
-    <div id="suggest-box" hidden>
-      <h2>Suggested wording</h2>
-      <div id="suggest-text" class="quote"></div>
-      <label class="check"><input id="use-suggest" type="checkbox"> Use this wording in the ticket</label>
+  <main id="view-main">
+    <div class="field">
+      <div class="field-head">
+        <label for="desc">What's the issue?</label>
+        <button id="clear" type="button" class="text-btn">Clear</button>
+      </div>
+      <textarea id="desc" rows="2" placeholder="e.g. projector won't turn on" spellcheck="false"></textarea>
     </div>
 
-    <h2>Similar past tickets</h2>
-    <ol id="similar"></ol>
+    <div id="empty" class="empty">
+      <strong>Start typing to see results</strong>
+      <span>You'll get a ticket type, a time estimate, and similar past tickets.</span>
+    </div>
 
-    <button id="fill" type="button">Auto-fill new contact page</button>
-    <p class="hint">Opens the new contact page and fills it in. It never saves or submits.</p>
+    <section id="result" hidden>
+      <div class="verdict-card" id="verdict-card">
+        <div class="verdict-top">
+          <span id="verdict-pill" class="pill pill-orange"></span>
+          <span id="confidence" class="muted"></span>
+        </div>
+        <div class="verdict-main">
+          <span id="verdict" class="verdict"></span>
+          <span id="verdict-sub" class="muted"></span>
+        </div>
+        <div class="range" aria-hidden="true">
+          <div class="range-track"><div id="range-fill" class="range-fill"></div><div id="range-dot" class="range-dot"></div></div>
+        </div>
+        <div class="range-labels">
+          <span id="range-best" class="mono"></span>
+          <span id="range-typical"></span>
+          <span id="range-count" class="mono"></span>
+        </div>
+        <p id="time" class="verdict-note"></p>
+      </div>
+
+      <div class="group">
+        <div class="group-head"><h2>Ticket type</h2><span id="type-hint" class="ok"></span></div>
+        <div id="type-seg" class="segmented" role="radiogroup" aria-label="Ticket type"></div>
+        <select id="ticket-type" hidden></select>
+      </div>
+
+      <div class="group">
+        <div class="group-head"><h2>For reference</h2><span class="faint">Not filled</span></div>
+        <div id="info" class="table"></div>
+      </div>
+
+      <p id="no-suggest" class="hint" hidden>No suggested wording. There weren't enough close past tickets, or no phrasing was common enough across them.</p>
+      <div id="suggest-box" class="card" hidden>
+        <h2>Suggested wording</h2>
+        <p id="suggest-text" class="suggest-text"></p>
+        <label class="switch"><input id="use-suggest" type="checkbox"><span class="track"></span>Use this wording in the ticket</label>
+      </div>
+
+      <div class="group">
+        <h2>Similar past tickets</h2>
+        <ol id="similar" class="table similar"></ol>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer" id="main-footer">
+    <div class="field">
+      <div class="field-head"><label for="eid">Requester EID <span class="faint">never stored</span></label></div>
+      <input id="eid" type="text" class="mono-input" placeholder="e.g. abc123" autocomplete="off" spellcheck="false" maxlength="12">
+    </div>
+    <button id="fill" type="button" class="primary" disabled>Auto-fill new contact</button>
+    <p id="status" class="footnote">Fills in the form for you. You still save it yourself.</p>
+  </footer>
+
+  <!-- Settings view -->
+  <section id="view-settings" hidden>
+    <header class="topbar">
+      <button id="close-settings" type="button" class="back" aria-label="Back">&larr;</button>
+      <div class="brand"><h1>Settings</h1></div>
+    </header>
+    <div class="settings-body">
+      <div class="group">
+        <h2>Connection</h2>
+        <div class="field">
+          <label for="url">New contact page URL</label>
+          <input id="url" type="url" class="mono-input" placeholder="https://your-instance.service-now.com/...">
+        </div>
+      </div>
+      <div class="group">
+        <h2>Filled on every ticket</h2>
+        <p class="hint">Leave a field blank to skip it.</p>
+        <div class="field"><label for="location">Location</label><input id="location" type="text" autocomplete="off"></div>
+        <div class="field"><label for="group">Assignment group</label><input id="group" type="text" autocomplete="off"></div>
+        <div class="field"><label for="assignee">Assigned to (your EID)</label><input id="assignee" type="text" class="mono-input" autocomplete="off"></div>
+      </div>
+      <button id="save-settings" type="button" class="primary">Save settings</button>
+      <p id="url-msg" class="footnote"></p>
+      <div class="card">
+        <strong>Fill not working?</strong>
+        <p class="hint">Open the new contact page and run a check. It only reports field names and layout, never ticket text or values.</p>
+        <button id="check" type="button" class="chip">Check the open page</button>
+        <textarea id="report" rows="8" class="mono-input" hidden readonly></textarea>
+      </div>
+    </div>
   </section>
-
-  <details id="settings">
-    <summary>Settings</summary>
-    <label for="url">New contact page URL</label>
-    <input id="url" type="url" placeholder="https://your-instance.service-now.com/...">
-    <label for="location">Location <span class="hint">(filled on every ticket; leave blank to skip)</span></label>
-    <input id="location" type="text" autocomplete="off">
-    <label for="assignee">Assigned To EID <span class="hint">(your EID, filled on every ticket; leave blank to skip)</span></label>
-    <input id="assignee" type="text" autocomplete="off">
-    <label for="group">Assignment Group <span class="hint">(filled on every ticket; leave blank to skip)</span></label>
-    <input id="group" type="text" autocomplete="off">
-    <button id="save-settings" type="button">Save settings</button>
-    <span id="url-msg" class="hint"></span>
-    <label>Fill not working?</label>
-    <button id="check" type="button">Check the open page</button>
-    <p class="hint">Open the new contact page, click this, and send the text that appears. It lists field names and layout only: no ticket text or field values.</p>
-    <textarea id="report" rows="8" hidden readonly></textarea>
-  </details>
 
   <script type="module" src="popup.js"></script>
 </body>
